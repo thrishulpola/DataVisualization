@@ -1,0 +1,179 @@
+---
+title: "Thrishul Final Project"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(leaflet)
+
+
+airbnb_data <- read.csv("C:/Users/Sunny/Documents/threads/air-bnb-listings.csv", sep = ";")
+head(airbnb_data)
+```
+
+
+```{r}
+
+colnames(airbnb_data) <- make.names(tolower(gsub(" ", "_", colnames(airbnb_data))))
+
+# Handle missing values for 'room_price'
+airbnb_data <- airbnb_data %>%
+  filter(!is.na(room.price) & !is.na(coordinates))
+
+# Since Room.Price is already an integer, we skip the conversion process
+
+# Convert 'minimum_nights' to integer (if it's not already)
+airbnb_data$minimum.nights <- as.integer(airbnb_data$minimum.nights)
+
+# Parse 'coordinates' into two separate columns
+airbnb_data <- airbnb_data %>%
+  separate(coordinates, into = c("latitude", "longitude"), sep = ",", convert = TRUE)
+
+# Remove any duplicates
+airbnb_data <- distinct(airbnb_data)
+
+# Filter outliers in 'room_price' if necessary
+# For example, you might want to remove listings above the 99th percentile
+quantile_limit <- quantile(airbnb_data$room.price, 0.99, na.rm = TRUE)
+airbnb_data <- airbnb_data %>%
+  filter(room.price <= quantile_limit)
+
+# Check the cleaned data
+head(airbnb_data)
+
+```
+Airbnb NY Visualization
+===================================================================
+## Column {.tabset .tabset-fade }
+
+### Room Prices by Room Type {data-width="350"}
+
+```{r}
+ggplot(airbnb_data, aes(x = room.type, y = room.price)) +
+  geom_boxplot() +
+  labs(title = "Room Prices by Room Type",
+       x = "Room Type",
+       y = "Price") +
+  theme_minimal() +
+  theme(plot.margin = margin(t = 8, r = 8, b = 8, l = 8)) # Adjust top, right, bottom, left margins as needed
+
+```
+
+
+Taking a quick look at this box plot, it tells us about the spread and median prices for different types of rooms. Entire homes or apartments have the widest price range and the highest median price, while shared rooms are the cheapest and have less variation in price. The dots outside the main plot show the outliers, which are unusually high or low prices compared to the rest. It's interesting to note that we see quite a few outliers for entire homes and private rooms.
+
+
+### Distribution of Room Prices
+
+
+```{r}
+library(ggplot2)
+library(plotly)
+
+# Define the breaks for the price bins and create labels for them
+breaks <- seq(from = 0, to = max(airbnb_data$room.price, na.rm = TRUE), by = 50)
+labels <- paste(head(breaks, -1), tail(breaks, -1), sep = "-")
+
+# Create a factor column with the price ranges using the labels
+airbnb_data$price_range <- cut(airbnb_data$room.price, breaks = breaks, labels = labels, include.lowest = TRUE, right = FALSE)
+
+# Calculate the count for each price range bin
+price_range_counts <- airbnb_data %>%
+  group_by(price_range) %>%
+  summarise(count = n())
+
+# Join the counts back onto the original data frame
+airbnb_data <- left_join(airbnb_data, price_range_counts, by = "price_range")
+
+# Create the ggplot object
+p <- ggplot(airbnb_data, aes(x = room.price, fill = price_range)) +
+  geom_histogram(binwidth = 50, color = "black") +
+  scale_fill_viridis_d(guide = FALSE) +
+  labs(title = "Distribution of Room Prices",
+       x = "Room Price ($)",
+       y = "Count") +
+  theme_minimal()
+
+# Convert the ggplot object to a plotly interactive graph, including the count in the tooltip
+ggplotly(p, tooltip = c("fill", "count"))
+```
+
+
+
+### Count of Room Types
+```{r}
+# Create a bar chart of Room Types
+ggplot(airbnb_data, aes(x = room.type)) +
+  geom_bar(fill = "cyan", color = "black") +
+  labs(title = "Count of Room Types",
+       x = "Room Type",
+       y = "Count")
+
+```
+
+
+
+### Room Price vs. Number of Reviews
+
+```{r}
+# Create a scatter plot of Price vs. Number of Reviews
+ggplot(airbnb_data, aes(x = number.of.reviews, y = room.price)) +
+  geom_point(alpha = 0.5, color = "red") +
+  labs(title = "Room Price vs. Number of Reviews",
+       x = "Number of Reviews",
+       y = "Room Price ($)")
+
+
+```
+
+
+
+### Spatial Distribution of Airbnb Listings
+
+```{r}
+library(ggplot2)
+
+ggplot(airbnb_data, aes(x = longitude, y = latitude)) +
+  geom_point(aes(color = room.price), alpha = 0.5, size = 1) +
+  scale_color_viridis_c() +
+  labs(title = "Spatial Distribution of Airbnb Listings",
+       x = "Longitude",
+       y = "Latitude",
+       color = "Price") +
+  theme_minimal()
+```
+
+
+
+### Map of listings
+
+```{r}
+
+# Assuming airbnb_data is loaded and contains 'longitude' and 'latitude' columns
+# Create a color palette for room prices
+pal <- colorNumeric(palette = "viridis", domain = airbnb_data$room.price)
+
+# Create the leaflet map
+leaflet(airbnb_data) %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  addCircleMarkers(
+    lng = ~longitude, lat = ~latitude,
+    color = ~pal(room.price),
+    opacity = 1, fillOpacity = 0.8,
+    radius = 5,  # Static radius for each marker
+    popup = ~paste("Price: $", room.price, "<br>",
+                   "Neighbourhood: ", neighbourhood),
+    clusterOptions = markerClusterOptions()  # Cluster options enable here
+  ) %>%
+  addLegend("bottomright", pal = pal, values = ~room.price,
+            title = "Room Price",
+            opacity = 1)
+```
+
